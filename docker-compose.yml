@@ -5,21 +5,22 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: pdficasso-backend
+    container_name: ${COMPOSE_PROJECT_NAME:-pdficasso}-backend
     ports:
-      - "3001:3001"
+      - "${BACKEND_PORT:-3001}:3001"
     environment:
       - NODE_ENV=production
       - PORT=3001
+      - CORS_ORIGIN=http://localhost:${FRONTEND_PORT:-5173}
     restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: pdficasso-frontend
+    container_name: ${COMPOSE_PROJECT_NAME:-pdficasso}-frontend
     ports:
-      - "5173:80" # Map host's 5173 to Nginx's default 80
+      - "${FRONTEND_PORT:-5173}:80"
     depends_on:
       - backend
     restart: unless-stopped
