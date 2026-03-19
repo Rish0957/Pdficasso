@@ -46,12 +46,12 @@ describe('PDF Service', () => {
 
       // Verify the array structure
       expect(splitBuffers).toHaveLength(2);
-      expect(splitBuffers[0].pageNum).toBe(1); // 0-indexed becomes 1
-      expect(splitBuffers[1].pageNum).toBe(3); // 2-indexed becomes 3
+      expect(splitBuffers[0]!.pageNum).toBe(1); // 0-indexed becomes 1
+      expect(splitBuffers[1]!.pageNum).toBe(3); // 2-indexed becomes 3
 
       // Verify each split buffer is a valid 1-page PDF
-      const page1Count = await getPageCount(splitBuffers[0].buffer);
-      const page2Count = await getPageCount(splitBuffers[1].buffer);
+      const page1Count = await getPageCount(splitBuffers[0]!.buffer);
+      const page2Count = await getPageCount(splitBuffers[1]!.buffer);
       
       expect(page1Count).toBe(1);
       expect(page2Count).toBe(1);

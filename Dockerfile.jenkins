@@ -3,10 +3,10 @@ FROM jenkins/jenkins:lts
 USER root
 
 # Download and install the static Docker CLI binary
-RUN curl -fsSLO https://download.docker.com/linux/static/stable/x86_64/docker-24.0.7.tgz && \
-    tar xzvf docker-24.0.7.tgz && \
+RUN curl -fsSLO https://download.docker.com/linux/static/stable/x86_64/docker-27.3.1.tgz && \
+    tar xzvf docker-27.3.1.tgz && \
     mv docker/docker /usr/local/bin/ && \
-    rm -rf docker docker-24.0.7.tgz && \
+    rm -rf docker docker-27.3.1.tgz && \
     mkdir -p /usr/local/lib/docker/cli-plugins && \
     curl -SL https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose && \
     chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
