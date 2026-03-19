@@ -25,7 +25,8 @@ function App() {
       try {
         const formData = new FormData();
         formData.append('pdf', files[0]);
-        const response = await axios.post('http://localhost:3001/api/pdf-info', formData);
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+        const response = await axios.post(`${apiUrl}/api/pdf-info`, formData);
         setTotalPages(response.data.pageCount);
         setPdfFileName(response.data.fileName);
       } catch (error) {
@@ -65,7 +66,8 @@ function App() {
       const formData = new FormData();
       selectedFiles.forEach(file => formData.append('pdfs', file));
 
-      const response = await axios.post('http://localhost:3001/api/merge', formData, {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const response = await axios.post(`${apiUrl}/api/merge`, formData, {
         responseType: 'blob'
       });
 
@@ -94,7 +96,8 @@ function App() {
       formData.append('pdf', selectedFiles[0]);
       formData.append('pages', Array.from(selectedPages).sort((a, b) => a - b).join(','));
 
-      const response = await axios.post('http://localhost:3001/api/split', formData, {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const response = await axios.post(`${apiUrl}/api/split`, formData, {
         responseType: 'blob'
       });
 
