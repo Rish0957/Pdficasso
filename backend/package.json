@@ -9,8 +9,8 @@
     "dev": "node --loader ts-node/esm --watch src/index.ts"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Rishabh Khandelwal",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "archiver": "^7.0.1",
