@@ -110,6 +110,31 @@ services:
 
 ---
 
+## 🚀 Advanced: Multi-Environment Scaling
+
+We upgraded our `docker-compose.yml` to support running multiple full copies of the app (Dev, Staging, Prod) on a single machine without port conflicts.
+
+### Dynamic Ports & Project Names
+By using `${VARIABLE:-default}` syntax, we can override settings at runtime:
+
+```yaml
+services:
+  backend:
+    container_name: ${COMPOSE_PROJECT_NAME:-pdficasso}-backend
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
+```
+
+| Env | `COMPOSE_PROJECT_NAME` | `FRONTEND_PORT` | `BACKEND_PORT` |
+|---|---|---|---|
+| **Prod** | `pdficasso-prod` | `80` | `3000` |
+| **Staging** | `pdficasso-staging` | `8081` | `3002` |
+| **Dev** | `pdficasso-dev` | `8082` | `3003` |
+
+> **🔑 Lesson**: Decoupling your configuration from hardcoded strings allows you to treat your infrastructure like "cattle" — you can spin up a fresh environment for any branch instantly.
+
+---
+
 ## ⚠️ Gotchas We Hit (Real-World Lessons)
 
 ### 1. Node Version Mismatch
