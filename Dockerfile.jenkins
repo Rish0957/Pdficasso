@@ -1,0 +1,26 @@
+FROM jenkins/jenkins:lts
+
+# Switch to root to install packages and add docker group
+USER root
+
+# Install the Docker CLI (so Jenkins can run `docker build`)
+RUN apt-get update && \
+    apt-get -y install apt-transport-https \
+      ca-certificates \
+      curl \
+      gnupg2 \
+      software-properties-common && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg | apt-key add - && \
+    add-apt-repository \
+      "deb [arch=amd64] https://download.docker.com/linux/debian \
+      $(lsb_release -cs) \
+      stable" && \
+    apt-get update && \
+    apt-get -y install docker-ce-cli
+
+# Add the 'jenkins' user to the root user group so it has permission
+# to access the mounted /var/run/docker.sock from the host machine
+RUN groupadd -f docker && usermod -aG root jenkins && usermod -aG docker jenkins
+
+# Drop back down to the jenkins user
+USER jenkins
