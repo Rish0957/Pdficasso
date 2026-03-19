@@ -11,7 +11,7 @@ const port = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// In-memory storage for PDFs
+// In-memory storage for PDFs just for the demo
 const storage = multer.memoryStorage();
 
 // 50MB file size limit enforced by multer
@@ -46,6 +46,7 @@ app.post('/api/merge', upload.array('pdfs', 10), async (req, res) => {
       return res.status(400).send('Please upload at least 2 PDFs to merge.');
     }
 
+    // Convert the Multer files into an array of Buffers
     const buffers = (req.files as Express.Multer.File[]).map(file => file.buffer);
     const mergedBuffer = await mergePdfs(buffers);
 
@@ -57,7 +58,7 @@ app.post('/api/merge', upload.array('pdfs', 10), async (req, res) => {
 
     res.send(mergedBuffer);
   } catch (error) {
-    console.error('Error merging PDFs:', error);
+    console.error("Error merging PDFs:", error);
     res.status(500).send('Internal Server Error while merging.');
   }
 });
@@ -99,6 +100,6 @@ app.post('/api/split', upload.single('pdf'), async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`PDFicasso server running on port ${port}`);
+app.listen(port as number, '0.0.0.0', () => {
+  console.log(`Server running on port ${port}`);
 });
