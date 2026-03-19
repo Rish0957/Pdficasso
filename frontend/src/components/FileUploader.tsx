@@ -1,16 +1,22 @@
 import { useState, useCallback } from 'react';
-import { FileUp, X, File } from 'lucide-react';
+import { FileUp, X, File, GripVertical } from 'lucide-react';
 
 interface FileUploaderProps {
+  selectedFiles: File[];
   onFilesSelected: (files: File[]) => void;
   maxSizeMB?: number;
   multiple?: boolean;
 }
 
-export function FileUploader({ onFilesSelected, maxSizeMB = 50, multiple = true }: FileUploaderProps) {
+export function FileUploader({
+  selectedFiles,
+  onFilesSelected,
+  maxSizeMB = 50,
+  multiple = true
+}: FileUploaderProps) {
   const [dragActive, setDragActive] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   const handleFiles = (files: FileList | File[]) => {
     setError(null);
@@ -30,7 +36,6 @@ export function FileUploader({ onFilesSelected, maxSizeMB = 50, multiple = true 
     }
 
     const updatedFiles = multiple ? [...selectedFiles, ...newFiles] : newFiles;
-    setSelectedFiles(updatedFiles);
     onFilesSelected(updatedFiles);
   };
 
@@ -62,9 +67,19 @@ export function FileUploader({ onFilesSelected, maxSizeMB = 50, multiple = true 
 
   const removeFile = (indexToRemove: number) => {
     const updatedFiles = selectedFiles.filter((_, index) => index !== indexToRemove);
-    setSelectedFiles(updatedFiles);
     onFilesSelected(updatedFiles);
   };
+
+  const moveFile = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+
+    const updatedFiles = [...selectedFiles];
+    const [movedFile] = updatedFiles.splice(fromIndex, 1);
+    updatedFiles.splice(toIndex, 0, movedFile);
+    onFilesSelected(updatedFiles);
+  };
+
+  const totalSizeMb = selectedFiles.reduce((acc, file) => acc + file.size, 0) / 1024 / 1024;
 
   return (
     <div className="w-full space-y-4">
@@ -109,12 +124,40 @@ export function FileUploader({ onFilesSelected, maxSizeMB = 50, multiple = true 
       {/* Selected Files List */}
       {selectedFiles.length > 0 && (
         <div className="bg-neutral-800 border border-neutral-700 rounded-xl p-4 shadow-lg">
-          <h4 className="text-sm font-semibold text-neutral-400 mb-3 uppercase tracking-wider">Selected Files</h4>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h4 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider">Selected Files</h4>
+            <span className="text-xs text-neutral-500">
+              {selectedFiles.length} file{selectedFiles.length === 1 ? '' : 's'} • {totalSizeMb.toFixed(2)} MB
+            </span>
+          </div>
           <ul className="space-y-2">
             {selectedFiles.map((file, idx) => (
-              <li key={`${file.name}-${idx}`} className="flex items-center justify-between bg-neutral-900/50 p-3 rounded-lg border border-neutral-700/50 group">
+              <li
+                key={`${file.name}-${idx}`}
+                draggable={multiple}
+                onDragStart={() => setDraggedIndex(idx)}
+                onDragOver={(e) => {
+                  if (multiple) {
+                    e.preventDefault();
+                  }
+                }}
+                onDrop={() => {
+                  if (multiple && draggedIndex !== null) {
+                    moveFile(draggedIndex, idx);
+                  }
+                  setDraggedIndex(null);
+                }}
+                onDragEnd={() => setDraggedIndex(null)}
+                className={`flex items-center justify-between bg-neutral-900/50 p-3 rounded-lg border group transition-colors ${
+                  draggedIndex === idx ? 'border-indigo-500/60 bg-indigo-500/10' : 'border-neutral-700/50'
+                }`}
+              >
                 <div className="flex items-center space-x-3 overflow-hidden">
+                  {multiple && <GripVertical className="w-4 h-4 text-neutral-500 shrink-0 cursor-grab" />}
                   <File className="w-5 h-5 text-indigo-400 shrink-0" />
+                  {multiple && (
+                    <span className="text-xs font-semibold text-neutral-500 w-5 shrink-0">{idx + 1}</span>
+                  )}
                   <span className="truncate max-w-[200px] sm:max-w-xs">{file.name}</span>
                   <span className="text-xs text-neutral-500">({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
                 </div>
