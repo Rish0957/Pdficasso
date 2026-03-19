@@ -77,6 +77,25 @@ build: add multi-stage Dockerfiles and docker-compose
 
 ---
 
+## 🔒 Safeguarding Your Branches
+
+In a professional setting, we use **Branch Protection Rules** to physically prevent anyone (even you!) from pushing directly to `main` or `dev`. Everything MUST go through a Pull Request.
+
+### How to set this up on GitHub:
+
+1.  Go to your repository on GitHub → **Settings** → **Branches**.
+2.  Click **Add branch protection rule**.
+3.  **Branch name pattern**: `main`
+4.  **Check these boxes**:
+    - [x] **Require a pull request before merging** (forces the PR workflow).
+    - [x] **Require status checks to pass before merging** (useful if you want Jenkins to "vote" on the PR).
+5.  Click **Create**.
+6.  **Repeat** for the `dev` branch.
+
+Once this is done, if you try to run `git push origin main` from your terminal, GitHub will **REJECT** it with an error. This is a safety net that ensures your CI/CD pipeline remains the only way code gets deployed!
+
+---
+
 ## Commands Cheat Sheet
 
 | Task | Command |
