@@ -43,4 +43,11 @@ pipeline {
             }
         }
     }
+    
+    post {
+        always {
+            echo '🧹 Cleaning up dangling Docker images...'
+            sh 'docker image prune -f'
+        }
+    }
 }

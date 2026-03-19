@@ -57,9 +57,27 @@ Why this matters:
 The stage currently runs:
 
 ```groovy
-dir('backend') {
-    sh 'npm ci'
-    sh 'npm run test'
+stage('Deploy to Environment') {
+    steps {
+        script {
+            if (env.GIT_BRANCH == 'origin/dev') {
+                // Staging Deploy
+                sh 'FRONTEND_PORT=8081 BACKEND_PORT=3002 COMPOSE_PROJECT_NAME=pdficasso-staging docker compose up -d --build'
+            } else if (env.GIT_BRANCH == 'origin/main') {
+                // Production Deploy
+                sh 'FRONTEND_PORT=80 BACKEND_PORT=3000 COMPOSE_PROJECT_NAME=pdficasso-prod docker compose up -d --build'
+            } else {
+                // Feature/Dev branch Deploy
+                sh 'FRONTEND_PORT=8082 BACKEND_PORT=3003 COMPOSE_PROJECT_NAME=pdficasso-dev docker compose up -d --build'
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'docker image prune -f'  // Automatically clean up dangling images
+        }
+    }
 }
 ```
 
