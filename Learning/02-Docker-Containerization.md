@@ -1,160 +1,234 @@
-# 🐳 02 - Docker & Containerization
+# 02 - Docker and Containerization
 
-Docker solves the "it works on my machine" problem by packaging your app + its environment (OS, Node version, dependencies) into a standalone **Container**.
+This guide explains how PDFicasso is packaged and run in containers, and why those decisions matter.
 
----
+## 1. Why Docker Matters Here
 
-## 📄 The Dockerfile
+PDFicasso is a two-service app:
 
-A `Dockerfile` is a recipe that tells Docker how to build an **Image** (a snapshot of your app). We use a **Multi-Stage Build** to keep images small.
+- frontend
+- backend
 
-### Why Multi-Stage?
-Without it, the final image would include compilers, TypeScript source, and bloated `node_modules` we don't need in production. Multi-stage uses a temporary "builder" to compile, then copies **only the output** into a clean, tiny production image.
+Both services have their own dependencies, build steps, and runtime expectations.
 
-### Backend Dockerfile (Explained Line-by-Line)
+Without Docker, a developer needs to align:
 
-```dockerfile
-# STAGE 1: Use Node 20 to compile TypeScript
-FROM node:20-alpine AS builder
-WORKDIR /usr/src/app
-COPY package*.json ./          # Copy dependency lists first (Docker caches this layer)
-RUN npm install                # Install ALL deps (including devDependencies like TypeScript)
-COPY tsconfig.json ./
-COPY src ./src
-RUN npm run build              # Runs "tsc" → compiles TS to JS in dist/
+- Node version
+- npm dependencies
+- frontend build behavior
+- backend runtime behavior
+- environment variables
 
-# STAGE 2: Clean production image
-FROM node:20-alpine
-WORKDIR /usr/src/app
-COPY package*.json ./
-RUN npm ci --only=production   # Install ONLY runtime deps (no TypeScript, no @types/*)
-COPY --from=builder /usr/src/app/dist ./dist   # Grab compiled JS from Stage 1
-EXPOSE 3001
-CMD ["node", "dist/index.js"]
-```
+Docker gives us reproducibility:
 
-### Frontend Dockerfile (Explained)
+- same Node base image
+- same build steps
+- same runtime commands
+- same ports and startup conventions
 
-```dockerfile
-# STAGE 1: Build the React app
-FROM node:20-alpine AS builder
-WORKDIR /usr/src/app
-COPY package*.json ./
-RUN npm install
-COPY . .
-RUN npm run build              # "tsc -b && vite build" → outputs static HTML/JS/CSS to dist/
+That is especially useful in a project meant for learning CI/CD.
 
-# STAGE 2: Serve with Nginx (no Node.js needed!)
-FROM nginx:alpine
-COPY --from=builder /usr/src/app/dist /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
-```
+## 2. The Current Runtime Model
 
-> **💡 Key Insight**: The frontend doesn't need Node to run! Once built, it's just static files. Nginx serves them at ~10x the speed of a Node server.
+The app is orchestrated with `docker-compose.yml`.
 
----
+### Backend service
 
-## 🚫 .dockerignore (Critical for Performance)
+- built from `./backend`
+- exposed internally on `3001`
+- host port is configurable with `BACKEND_PORT`
 
-Just like `.gitignore` tells Git what to skip, `.dockerignore` tells Docker what NOT to copy into the build context.
+### Frontend service
 
-**Without .dockerignore**: Our frontend build took **93 seconds** just to transfer ~180MB of `node_modules` to the Docker daemon — files that get immediately thrown away when `npm install` runs inside the container!
+- built from `./frontend`
+- served by Nginx on container port `80`
+- host port is configurable with `FRONTEND_PORT`
+- receives `VITE_API_URL` as a build argument
 
-**With .dockerignore**: Transfer dropped to **under 1 second**.
+The key design choice is that the frontend is a built static artifact, not a long-running Node frontend server in production.
 
-```
-# .dockerignore
-node_modules       # Docker will run its own npm install
-dist               # Docker will build its own output
-npm-debug.log
-.git
-```
+## 3. Why the Frontend Uses Nginx
 
-> **🔑 Rule of thumb**: If the Dockerfile generates it (via `npm install` or `npm run build`), exclude it from `.dockerignore`.
+After `vite build`, the frontend becomes:
 
----
+- HTML
+- CSS
+- JavaScript assets
 
-## 🐙 Docker Compose
+At that point, Node is no longer required to serve the app.
 
-Instead of running `docker build` and `docker run` manually for each service, `docker-compose.yml` orchestrates everything in one file:
+Nginx is used because it is:
+
+- smaller
+- faster for static delivery
+- operationally simpler
+
+This is one of the most useful deployment lessons in frontend work:
+
+`React apps need Node to build, not necessarily to run.`
+
+## 4. Compose Variables as a Blueprint Mechanism
+
+The Compose file is written like a template:
 
 ```yaml
-services:
-  backend:
-    build:
-      context: ./backend         # Where to find the Dockerfile
-    ports:
-      - "3001:3001"              # host_port:container_port
-    environment:
-      - NODE_ENV=production
-
-  frontend:
-    build:
-      context: ./frontend
-    ports:
-      - "5173:80"                # Your browser hits 5173, Nginx inside listens on 80
-    depends_on:
-      - backend                  # Start backend first
+container_name: ${COMPOSE_PROJECT_NAME:-pdficasso}-backend
+ports:
+  - "${BACKEND_PORT:-3001}:3001"
 ```
 
-### Key Commands
+This is a strong pattern because the same Compose file can be used for:
 
-| Command | What it does |
-|---|---|
-| `docker compose up --build` | Build images + start all containers |
-| `docker compose up -d` | Start in detached mode (background) |
-| `docker compose down` | Stop and remove all containers |
-| `docker compose logs -f` | Watch live logs from all services |
-| `docker ps` | List running containers |
+- development
+- staging
+- production
 
----
+Only the variables change.
 
-## 🚀 Advanced: Multi-Environment Scaling
+That avoids duplicating:
 
-We upgraded our `docker-compose.yml` to support running multiple full copies of the app (Dev, Staging, Prod) on a single machine without port conflicts.
+- `docker-compose.dev.yml`
+- `docker-compose.staging.yml`
+- `docker-compose.prod.yml`
 
-### Dynamic Ports & Project Names
-By using `${VARIABLE:-default}` syntax, we can override settings at runtime:
+for a project this size.
+
+## 5. Why `VITE_API_URL` Is a Build Arg
+
+Vite injects environment values at build time, not runtime.
+
+That means the frontend image must know which backend URL it should call while the assets are being built.
+
+Example:
+
+- local dev stack may use `http://localhost:3001`
+- staging stack may use `http://localhost:3002`
+- prod stack may use `http://localhost:3000`
+
+This is why Compose passes:
 
 ```yaml
-services:
-  backend:
-    container_name: ${COMPOSE_PROJECT_NAME:-pdficasso}-backend
-    ports:
-      - "${BACKEND_PORT:-3001}:3001"
+args:
+  - VITE_API_URL=${VITE_API_URL:-http://localhost:3001}
 ```
 
-| Env | `COMPOSE_PROJECT_NAME` | `FRONTEND_PORT` | `BACKEND_PORT` |
-|---|---|---|---|
-| **Prod** | `pdficasso-prod` | `80` | `3000` |
-| **Staging** | `pdficasso-staging` | `8081` | `3002` |
-| **Dev** | `pdficasso-dev` | `8082` | `3003` |
+This is an important concept:
 
-> **🔑 Lesson**: Decoupling your configuration from hardcoded strings allows you to treat your infrastructure like "cattle" — you can spin up a fresh environment for any branch instantly.
+`Frontend env configuration in Vite is usually baked into the build artifact.`
 
----
+## 6. Why This Project Works Well with Containers
 
-## ⚠️ Gotchas We Hit (Real-World Lessons)
+PDFicasso is particularly container-friendly because:
 
-### 1. Node Version Mismatch
-We initially used `node:18-alpine` but **Vite 8** and **Tailwind v4** require Node 20+. The error was:
-```
-You are using Node.js 18.20.8. Vite requires Node.js version 20.19+
-ReferenceError: CustomEvent is not defined
-```
-**Fix**: Changed `FROM node:18-alpine` → `FROM node:20-alpine` in both Dockerfiles.
+- uploads are in memory
+- no database is required
+- no file persistence is required
+- no native system PDF binaries are required
 
-> **🔑 Lesson**: Always check the `engines` field in your `package.json` dependencies to know which Node version you need.
+Using `pdf-lib` instead of external CLI tools keeps the backend simpler to containerize.
 
-### 2. Missing Build Script
-The Dockerfile ran `RUN npm run build` but our `package.json` had no `"build"` script defined.  
-**Fix**: Added `"build": "tsc"` to the backend's `package.json` scripts.
+If the app depended on:
 
-> **🔑 Lesson**: Docker runs your code in a fresh environment. If something only worked because you ran `npx tsc` manually, it won't work in Docker.
+- Ghostscript
+- Poppler
+- ImageMagick
+- Java
 
-### 3. Tailwind CSS Not Loading in Production
-Tailwind v4 requires the `@tailwindcss/vite` plugin in `vite.config.ts`. Without it, the dev server works (hot module replacement), but the production build strips all utility classes.
-**Fix**: Added `import tailwindcss from '@tailwindcss/vite'` and included it in the plugins array.
+the Docker images would become more complex and heavier.
 
-> **🔑 Lesson**: Always test `npm run build` locally before Dockerizing. Dev mode and production mode can behave differently.
+## 7. Operational Lessons from This App
+
+### Lesson 1: Output directories must be isolated
+
+The backend now excludes `dist` in `tsconfig.json`.
+
+Why does that matter operationally?
+
+Because compiled output accidentally becoming input is not just a local problem. It can break:
+
+- builds
+- tests
+- CI
+- Docker build reproducibility
+
+### Lesson 2: Docker and app config must agree
+
+The backend always listens on container port `3001`.
+
+The host port can change, but the application inside the container still expects `3001`.
+
+That distinction is critical:
+
+- container port is app-internal
+- host port is environment-specific
+
+### Lesson 3: Build-time env vs runtime env
+
+The frontend and backend treat configuration differently:
+
+- frontend: Vite build-time
+- backend: runtime process env
+
+That is a very common real-world source of confusion.
+
+## 8. Security Implications
+
+Containerization does not automatically make the app secure, but it helps structure boundaries.
+
+### Benefits in this project
+
+- isolated service runtimes
+- predictable dependencies
+- easier reproduction of production locally
+- fewer host-machine differences
+
+### Still important to remember
+
+- file size limits still matter
+- memory use still matters
+- password-protected file behavior still matters
+- exposed ports still need to be understood
+
+## 9. Troubleshooting Patterns
+
+### If frontend cannot reach backend
+
+Check:
+
+- `VITE_API_URL`
+- backend host port
+- frontend was rebuilt after env changes
+
+### If Dockerized frontend looks fine locally but fails after a rebuild
+
+Check:
+
+- Vite build config
+- Tailwind plugin config
+- whether the API URL is stale in the built bundle
+
+### If backend build fails unexpectedly
+
+Check:
+
+- `tsconfig.json`
+- `dist` exclusion
+- whether test files are excluded from runtime builds
+
+## 10. Good Next Steps If You Want to Go Deeper
+
+If you want to extend the Docker side of this project as a learning exercise, strong next steps would be:
+
+1. add health checks to both services
+2. add an Nginx reverse-proxy config instead of direct host-port exposure
+3. add image tags that include Git SHA
+4. add a dedicated production Compose override
+5. publish images to a registry instead of only local builds
+
+## 11. Key Learning Takeaways
+
+1. Docker helps most when the app has multiple services and build steps.
+2. Frontend configuration in Vite is often a build-time concern.
+3. Compose variables are a clean way to support multiple environments.
+4. Container-friendly application design starts with dependency choices.
+5. Operational reliability often depends on small details like `dist` exclusion and port consistency.
