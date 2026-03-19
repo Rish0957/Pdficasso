@@ -98,6 +98,41 @@ stage('Deploy to Environment') {
 
 ---
 
+## ⚡ Automation: Automatic Triggers
+
+Since Jenkins is running on your **local machine** (`localhost:8080`), GitHub cannot "see" it to send a Webhook. You have two ways to automate:
+
+### Option A: Poll SCM (The Easiest)
+Jenkins will periodically "ask" GitHub if there are new changes.
+1. In your Pipeline job, go to **Configure**.
+2. Under **Build Triggers**, check **Poll SCM**.
+3. In the **Schedule** box, enter `H/2 * * * *` (checks every 2 mins).
+
+### Option B: Webhooks via **ngrok** (The Pro Way)
+`ngrok` creates a secure "tunnel" from the public internet directly to your local computer. This allows GitHub to send **instant** notifications to your local Jenkins.
+
+#### 1. Setup ngrok
+1. Download ngrok from [ngrok.com](https://ngrok.com/download) and sign up for a free account.
+2. Run this in your terminal to connect your account:
+   `ngrok config add-authtoken YOUR_TOKEN_HERE`
+3. Start the tunnel:
+   `ngrok http 8080`
+
+#### 2. Configure GitHub
+1. Copy the **Forwarding** URL from the ngrok terminal (e.g., `https://xyz.ngrok-free.app`).
+2. Go to your GitHub Repository → **Settings** → **Webhooks** → **Add webhook**.
+3. **Payload URL**: `[YOUR_NGROK_URL]/github-webhook/` (The final `/` is important!)
+4. **Content type**: `application/json`.
+5. Click **Add webhook**.
+
+#### 3. Configure Jenkins
+1. In your Pipeline job, go to **Configure**.
+2. Under **Build Triggers**, check **GitHub hook trigger for GITScm polling**.
+
+Now, the very second you `git push`, Jenkins will jump into action! 🚀
+
+---
+
 ## Useful Commands
 
 | Task | Command |
