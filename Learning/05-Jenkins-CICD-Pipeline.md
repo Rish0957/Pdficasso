@@ -74,6 +74,12 @@ stage('Deploy to Environment') {
             }
         }
     }
+
+    post {
+        always {
+            sh 'docker image prune -f'  // Automatically clean up dangling images
+        }
+    }
 }
 ```
 
