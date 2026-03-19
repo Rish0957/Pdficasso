@@ -1,62 +1,202 @@
-# 🌐 06 - Multi-Environment Stack Architecture
+# 06 - Multi-Environment Stack
 
-How we run **Production**, **Staging**, and **Development** in parallel on a single machine without them interfering with each other.
+This guide explains how PDFicasso can run multiple isolated environments on the same machine and why that pattern is useful.
 
----
+## 1. The Core Problem
 
-## The "Blueprint" Strategy
+If you want:
 
-To scale from one environment to many, we treat our `docker-compose.yml` like a **Blueprint** (template) and use **Variables** to fill in the specific details (Ports and Names) for each environment.
+- production
+- staging
+- development
 
-### 1. The Variable Template (`docker-compose.yml`)
-Instead of hardcoding port `80`, we use `${FRONTEND_PORT}`. Instead of naming the container `pdf-app`, we use `${COMPOSE_PROJECT_NAME}`.
+on one machine, you immediately hit conflicts:
 
-### 2. The Isolation Layer
-Docker Compose supports the `--project-name` (or `COMPOSE_PROJECT_NAME` variable). This creates a completely isolated network and container namespace for each environment.
+- same container names
+- same ports
+- same networks
 
-| Environment | Branch | URL | Backend Port | Project Name |
-|---|---|---|---|---|
-| **Production** | `main` | `http://localhost:80` | `3000` | `pdficasso-prod` |
-| **Staging** | `dev` | `http://localhost:8081` | `3002` | `pdficasso-staging` |
-| **Development**| `feature/*` | `http://localhost:8082` | `3003` | `pdficasso-dev` |
+Multi-environment setup is about solving those conflicts cleanly.
 
----
+## 2. The Strategy Used Here
 
-## Data Isolation
+PDFicasso uses one Compose file plus environment variables.
 
-Each environment has its own **Volumes**. When you upload a file to the Staging environment, it goes into a folder called `pdficasso-staging_uploads_data`. It is physically impossible for the Production app to see those files.
+Three values do most of the isolation work:
 
-This is critical because it allows you to:
-1. Test "destructive" features in Staging without touching live data.
-2. Run experimental migrations in Dev.
-3. Keep Production stable and clean.
+- `COMPOSE_PROJECT_NAME`
+- `FRONTEND_PORT`
+- `BACKEND_PORT`
 
----
+And one more keeps the frontend pointing at the correct backend:
 
-## Troubleshooting the Stack
+- `VITE_API_URL`
 
-If you want to see what's running, use the project filter in the terminal:
+## 3. Why `COMPOSE_PROJECT_NAME` Matters So Much
+
+This variable is easy to underestimate.
+
+It changes the namespace Compose uses for:
+
+- containers
+- networks
+- related resource grouping
+
+That means:
+
+- `pdficasso-prod-backend`
+- `pdficasso-staging-backend`
+- `pdficasso-dev-backend`
+
+can all coexist.
+
+Without project-name isolation, even different port mappings would not fully solve environment collisions.
+
+## 4. Current Environment Mapping
+
+The current Jenkinsfile uses this mental model:
+
+| Environment | Branch Source | Frontend Port | Backend Port | Project Name |
+| --- | --- | --- | --- | --- |
+| Production | `main` | `80` | `3000` | `pdficasso-prod` |
+| Staging | `dev` | `8081` | `3002` | `pdficasso-staging` |
+| Development | feature branches | `8082` | `3003` | `pdficasso-dev` |
+
+This gives every environment:
+
+- unique ports
+- unique container names
+- a predictable access pattern
+
+## 5. Why This Is Better Than Separate Compose Files
+
+You could create:
+
+- `docker-compose.dev.yml`
+- `docker-compose.staging.yml`
+- `docker-compose.prod.yml`
+
+But for a project like this, that increases duplication.
+
+Duplication creates a risk:
+
+- one file gets updated
+- another one is forgotten
+- environments slowly diverge
+
+Using one shared Compose blueprint keeps behavior aligned.
+
+## 6. Environment Isolation in Practice
+
+When Jenkins deploys a branch, it injects values at runtime.
+
+That means:
+
+- the same app definition is reused
+- only the environment-specific variables change
+
+This gives you:
+
+- consistency
+- lower maintenance
+- easier debugging
+
+## 7. Why the Frontend Needs an Environment-Specific API URL
+
+Because the frontend is a built artifact, it must know where to call the backend before the build completes.
+
+That is why:
+
+- production frontend uses production backend URL
+- staging frontend uses staging backend URL
+- dev frontend uses dev backend URL
+
+If you forget this, you can accidentally deploy:
+
+- a staging frontend that still calls dev backend
+- a production frontend that still calls staging backend
+
+This is one of the most important multi-environment lessons in frontend deployment.
+
+## 8. What “Isolated” Actually Means Here
+
+Isolation in this project means:
+
+- different container names
+- different exposed host ports
+- different frontend API targets
+- separate Compose namespaces
+
+It does not mean:
+
+- separate physical machines
+- separate databases
+- separate cloud accounts
+
+That is okay. This is still a valid and useful environment separation model for local CI/CD learning.
+
+## 9. How to Inspect a Specific Environment
+
+Examples:
 
 ```bash
-# See only Staging containers
-COMPOSE_PROJECT_NAME=pdficasso-staging docker compose ps
-
-# See only Production containers
 COMPOSE_PROJECT_NAME=pdficasso-prod docker compose ps
-
-# View logs for just the DEV backend
-COMPOSE_PROJECT_NAME=pdficasso-dev docker compose logs -f backend
+COMPOSE_PROJECT_NAME=pdficasso-staging docker compose logs -f
+COMPOSE_PROJECT_NAME=pdficasso-dev docker compose down
 ```
 
----
+This is very useful because it lets you think of each environment as its own stack, even though they share the same machine.
 
-## Summary of the Full Flow
+## 10. Common Failure Modes
 
-1. **You write code** on a feature branch.
-2. **You push** to GitHub.
-3. **Jenkins notices** the push.
-4. **Jenkins identifies the branch**:
-    - If `main` → Deploy to **PROD** stack.
-    - If `dev` → Deploy to **STAGING** stack.
-    - If anything else → Deploy to **DEV** stack.
-5. **Docker Compose builds/restarts** ONLY the containers for that specific environment.
+### Failure mode 1: port collision
+
+If two environments try to use the same host port, one will fail to start.
+
+### Failure mode 2: stale frontend API target
+
+If `VITE_API_URL` is wrong during build, the deployed frontend may call the wrong backend.
+
+### Failure mode 3: mistaken project name reuse
+
+If two deployments use the same `COMPOSE_PROJECT_NAME`, they are not really isolated anymore. They will step on each other.
+
+## 11. Why This Setup Is Good for Learning
+
+This multi-environment model teaches several important DevOps ideas in a manageable way:
+
+- configuration as data
+- environment isolation
+- branch-driven deployment
+- avoiding duplicated infrastructure definitions
+
+These lessons transfer directly to larger systems, even if the exact tools later change.
+
+## 12. What a More Advanced Version Might Add
+
+If the project grows, you could later add:
+
+1. reverse-proxy routing by hostname instead of port
+2. health checks and readiness checks
+3. image registry promotion between environments
+4. environment-specific secrets management
+5. automated smoke tests after deploy
+
+## 13. Summary Flow
+
+The environment flow looks like this:
+
+1. code is pushed to a branch
+2. Jenkins checks the branch name
+3. Jenkins chooses the target environment
+4. Compose receives project name and ports
+5. frontend is built with the matching backend URL
+6. the isolated stack comes up under that environment name
+
+## 14. Key Learning Takeaways
+
+1. Environment isolation is mostly a naming and configuration problem.
+2. `COMPOSE_PROJECT_NAME` is a powerful isolation primitive.
+3. Frontend build-time API configuration is critical in multi-environment systems.
+4. One parameterized Compose file is often better than several duplicated ones.
+5. Branch-to-environment mapping is a clean way to connect Git workflow to deployment workflow.

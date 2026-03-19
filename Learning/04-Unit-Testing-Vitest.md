@@ -1,104 +1,276 @@
-# 🧪 04 - Unit Testing with Vitest
+# 04 - Unit Testing with Vitest
 
-Before automating anything, you need **tests** — otherwise the pipeline has nothing to verify. We use **Vitest** because it natively understands TypeScript and ES Modules, which makes it the perfect companion for our Vite-based stack.
+This guide explains how the backend test strategy works in PDFicasso and why it is structured this way.
 
----
+## 1. Why Testing Matters in This Project
 
-## Why Test?
+PDFicasso manipulates binary documents. That makes testing more important than it would be in a simple CRUD app.
 
-Without tests, your CI pipeline is just a fancy build script. Tests answer: *"Does the code actually produce the correct output?"*
+A bug here can show up as:
 
-| Without Tests | With Tests |
-|---|---|
-| "It compiled, ship it!" | "It compiled AND the merge logic produces a 4-page PDF from a 1-page + 3-page input." |
+- wrong page order
+- missing pages
+- invalid rotation
+- corrupted export output
+- build regressions that only appear in CI
 
----
+Because PDFs are opaque binary files, you do not want to rely only on manual “open it and see” validation.
 
-## Setup
+## 2. What We Test Today
 
-```bash
-# Install Vitest as a dev dependency
-npm install -D vitest
+The current backend service tests cover:
 
-# Update package.json scripts
-"test": "vitest run"        # Run once and exit (for CI)
-"test:watch": "vitest"      # Watch mode (for development)
-```
+- page counting
+- PDF merging
+- splitting into individual pages
+- extracting selected pages into one PDF
+- preview generation
+- descriptor generation
+- rebuilding PDFs from descriptors
+- rotation behavior
+- optimization behavior
+- watermark-compatible export paths
+- error paths for invalid indices and corrupt input
 
----
+The tests use real fixture PDFs from `Test/`.
 
-## Anatomy of a Test File
+That is important. Real files surface real behavior.
 
-Our test file is `backend/src/pdfService.test.ts`. Here's the structure:
+## 3. Why Vitest Was a Good Choice
 
-```typescript
-import { describe, it, expect, beforeAll } from 'vitest';
-import { getPageCount, mergePdfs, splitPdfToIndividualPages } from './pdfService.js';
+Vitest fits this stack well because:
 
-describe('PDF Service', () => {
-  let onePagePdf: Buffer;
-  let threePagePdf: Buffer;
+- it works naturally with TypeScript
+- it works naturally with ES modules
+- it is fast
+- it integrates well with Vite-era tooling
 
-  // beforeAll runs ONCE before all tests in this block
-  beforeAll(() => {
-    onePagePdf = fs.readFileSync('path/to/sample-pdf-1page.pdf');
-    threePagePdf = fs.readFileSync('path/to/sample-local-pdf-3pages.pdf');
-  });
+This project only uses Vitest on the backend right now, but the same tool could later be extended into frontend component tests if desired.
 
-  describe('getPageCount', () => {
-    it('should correctly count pages in a 1-page PDF', async () => {
-      const count = await getPageCount(onePagePdf);
-      expect(count).toBe(1);    // ← This is an "assertion"
-    });
-  });
-});
-```
+## 4. Test File Structure
 
-### Key Concepts
+The core service tests live in:
 
-| Concept | What it does |
-|---|---|
-| `describe()` | Groups related tests together (like a folder) |
-| `it()` | Defines a single test case |
-| `expect().toBe()` | **Assertion** — if the value doesn't match, the test fails |
-| `beforeAll()` | Setup code that runs once before all tests |
+- `backend/src/pdfService.test.ts`
 
----
+This file follows a good pattern:
 
-## What We Test
+- load fixtures once in `beforeAll`
+- group tests by function
+- assert both success and failure behavior
 
-We wrote **4 tests** against 2 real PDF files you provided:
+Example groupings:
 
-1. **Page Count (1-page PDF)** — Verifies `getPageCount` returns `1`
-2. **Page Count (3-page PDF)** — Verifies `getPageCount` returns `3`
-3. **Merge** — Merges the 1-page + 3-page PDF and verifies the result has `4` pages
-4. **Split** — Extracts pages 1 and 3 from the 3-page PDF and verifies each output is a valid 1-page PDF
+- `getPageCount`
+- `mergePdfs`
+- `splitPdfToIndividualPages`
+- `extractPagesToSinglePdf`
+- `buildPdfFromDescriptors`
+- `splitPdfFromDescriptors`
 
----
+## 5. Why the Service Layer Is the Best Unit-Test Target
 
-## ⚠️ Gotcha: Stale Compiled Files
+Notice that most tests target `pdfService.ts`, not Express routes.
 
-We hit a frustrating bug where tests kept failing with `getPageCount is not a function` even though the source code was correct.
+That is intentional.
 
-**Root cause**: Old compiled `.js` files were sitting in the `src/` directory from a previous `tsc` run that output directly into `src/` instead of `dist/`. Vitest resolved the `.js` import (`pdfService.js`) and loaded the **stale compiled version** instead of the TypeScript source.
+Why?
 
-**Fix**: Deleted all `*.js`, `*.js.map`, and `*.d.ts` files from `src/`.
+Because the service layer is:
 
-> **🔑 Lesson**: Always ensure your `tsconfig.json` has `"outDir": "./dist"` set, and keep your source directory clean of compiled artifacts.
+- pure business logic
+- easier to isolate
+- easier to understand
+- easier to debug
 
----
+If you only test routes, failures mix together:
 
-## Running Tests
+- upload parsing
+- HTTP plumbing
+- response headers
+- PDF transformation logic
+
+Service-layer tests keep the signal cleaner.
+
+## 6. Using Real PDF Fixtures
+
+The repository includes:
+
+- `Test/sample-pdf-1page.pdf`
+- `Test/sample-local-pdf-3pages.pdf`
+
+These fixtures are valuable because they allow you to verify:
+
+- real page counts
+- multi-page splitting
+- reordered extraction
+- one-page edge cases
+
+This is better than trying to mock everything.
+
+A strong lesson here is:
+
+`When working with binary document formats, realistic fixtures are often worth more than elaborate mocks.`
+
+## 7. Types of Assertions We Use
+
+### Page count assertions
+
+These validate the shape of the output:
+
+- did merge create the expected number of pages?
+- did extraction create the expected count?
+
+### Error assertions
+
+These validate failure behavior:
+
+- invalid page indices
+- corrupt inputs
+- unsupported states
+
+### Structural behavior assertions
+
+These validate logic, not just existence:
+
+- duplicate page selection remains duplicate
+- rotation is preserved
+- full-document export still contains the correct number of pages
+
+## 8. Why Duplicate Page Tests Matter
+
+At first, duplicate page tests may seem unnecessary.
+
+But they protect an important product decision:
+
+If the user asks for the same page multiple times, should the app:
+
+- silently deduplicate
+- preserve the duplicates
+
+PDFicasso preserves duplicates in several export paths.
+
+That means duplicate tests are not trivial. They lock in product behavior.
+
+This is an important testing lesson:
+
+`Tests should protect product decisions, not just code branches.`
+
+## 9. Why Rotation Tests Matter
+
+The P1 editor introduced rotation support.
+
+A page could now be:
+
+- selected
+- reordered
+- rotated
+- exported
+
+If you only tested page count, you could still ship a broken rotation pipeline.
+
+That is why the tests verify the resulting page rotation angle after rebuild and split operations.
+
+## 10. Why Preview Tests Matter
+
+Preview generation is not just UI decoration. It is part of the document workflow.
+
+If preview generation drifts from export behavior, users may see one thing in the editor and download another.
+
+Testing preview output ensures:
+
+- one preview per page
+- preview documents remain valid PDFs
+
+## 11. Common Testing Lessons from This Project
+
+### Lesson 1: compiled artifacts can poison test resolution
+
+This project previously ran into stale compiled output issues.
+
+If `.js` or `.d.ts` artifacts live in the wrong place, tests may import old code instead of source code.
+
+That is why:
+
+- output belongs in `dist`
+- `dist` should be excluded from source compilation inputs
+
+### Lesson 2: build settings matter to test stability
+
+A test suite is only trustworthy if the build setup is clean.
+
+### Lesson 3: strict TypeScript improves tests too
+
+The backend uses strict typing. That catches mistakes in:
+
+- descriptor payloads
+- optional fields
+- array access assumptions
+
+before runtime.
+
+## 12. What Is Still Not Covered
+
+The current suite is strong at the service layer, but there are still gaps you could fill later:
+
+### API-level tests
+
+These would validate:
+
+- route behavior
+- response codes
+- ZIP headers
+- encrypted-PDF error payloads
+
+### Frontend tests
+
+These could validate:
+
+- page selection syncing
+- export settings behavior
+- export settings behavior
+- status banner rendering
+
+### End-to-end tests
+
+These would validate the full user journey in a browser.
+
+For example:
+
+- upload a PDF
+- rotate a page
+- delete a page
+- export the edited document
+
+## 13. A Good Testing Expansion Path
+
+If you want to deepen this project later, a strong order would be:
+
+1. API route tests for Express
+2. frontend component tests for editor behavior
+3. end-to-end browser tests
+
+That sequence adds confidence from inside out.
+
+## 14. Running Tests in Different Contexts
+
+### Local backend run
 
 ```bash
 cd backend
-npm test          # Runs all tests once
+npm run test
 ```
 
-Expected output:
-```
- ✓ src/pdfService.test.ts (4 tests) 66ms
+### CI run
 
- Test Files  1 passed (1)
-      Tests  4 passed (4)
-```
+The Jenkins pipeline runs backend tests in a Node container before deployment.
+
+That means the tests are not just local developer checks. They are part of the delivery gate.
+
+## 15. Key Learning Takeaways
+
+1. Test the service layer first when working with document transformations.
+2. Real file fixtures are extremely valuable for PDF work.
+3. Good tests protect both technical correctness and product decisions.
+4. Build hygiene affects test trustworthiness.
+5. Page count alone is not enough once editing features exist.

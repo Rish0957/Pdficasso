@@ -1,108 +1,256 @@
-# 🌳 03 - Git Branching Strategy
+# 03 - Git Branching Strategy
 
-In a real CI/CD pipeline, you never push directly to `main`. Here's the branching model we follow for PDFicasso.
+This guide explains how to think about branching for a project like PDFicasso, where product features, infrastructure, and learning-oriented documentation are all evolving together.
 
----
+## 1. Why Branch Strategy Matters
 
-## Branch Structure
+Branch strategy is not about ceremony. It exists to reduce risk.
 
+In this project, changes can affect:
+
+- frontend behavior
+- backend logic
+- tests
+- Docker builds
+- CI/CD deployment behavior
+- educational docs
+
+A single direct push to `main` can unintentionally break far more than one feature.
+
+## 2. Recommended Branch Model
+
+For this project, a simple and effective model is:
+
+- `main`
+  Production-ready branch.
+
+- `dev`
+  Integration branch for validated work.
+
+- `feature/*`
+  New feature work.
+
+- `fix/*`
+  Bug fixes.
+
+- `docs/*`
+  Documentation-focused work when it is large enough to stand alone.
+
+This balances clarity with simplicity.
+
+## 3. Why `dev` Exists
+
+The `dev` branch gives you a safe integration layer between:
+
+- individual feature work
+- production deployment
+
+That is especially helpful when features arrive in waves:
+
+- P0 usability work
+- P1 editing work
+- P2 export and size-reduction work
+
+With `dev`, you can validate how multiple features interact before they reach `main`.
+
+## 4. Feature Branch Examples for This Project
+
+Good branch names are specific and outcome-oriented.
+
+Examples:
+
+- `feature/merge-reorder`
+- `feature/page-editor`
+- `feature/export-watermark-optimize`
+- `fix/backend-tsconfig-dist`
+- `docs/refresh-learning-guides`
+
+Bad branch names are vague:
+
+- `feature/update`
+- `fix/stuff`
+- `test-branch`
+
+## 5. A Healthy Workflow
+
+### Create from `dev`
+
+```bash
+git checkout dev
+git pull origin dev
+git checkout -b feature/page-editor
 ```
-main ─────────────────────────── Production-ready code
-  │
-  └── dev ────────────────────── Integration branch (all features merge here first)
-        │
-        ├── feature/split-zip ── A specific feature branch
-        └── fix/node-version ─── A bugfix branch
-```
 
-| Branch | Purpose | Who pushes here? |
-|---|---|---|
-| `main` | Stable, production-ready code. Gets deployed. | Only via Pull Requests from `dev` |
-| `dev` | Integration branch. All feature work merges here first for testing. | Via Pull Requests from feature branches |
-| `feature/*` | One branch per feature (e.g., `feature/split-zip`). | The developer working on it |
-| `fix/*` | Hotfix branches for bugs. | The developer fixing it |
+### Work in small increments
 
----
+Commit by meaningful unit:
 
-## The Workflow
+- state refactor
+- backend descriptor model
+- editor UI
+- tests
+- docs
 
-```
-1. Create a feature branch from dev:
-   git checkout dev
-   git checkout -b feature/my-new-feature
+This makes review easier and rollback safer.
 
-2. Do your work, commit often:
-   git add .
-   git commit -m "feat: add page preview thumbnails"
+### Open a PR into `dev`
 
-3. Push to GitHub:
-   git push origin feature/my-new-feature
+The PR should answer:
 
-4. Open a Pull Request: feature/my-new-feature → dev
-   (Code review happens here)
+- what changed
+- why it changed
+- how it was verified
+- what risks remain
 
-5. After approval, merge into dev.
-   (Jenkins CI runs tests on dev automatically)
+### Promote `dev` to `main`
 
-6. When dev is stable, open a PR: dev → main
-   (This triggers the production deployment pipeline)
-```
+Only after:
 
----
+- CI passes
+- manual validation passes
+- the integrated environment looks good
 
-## Commit Message Convention
+## 6. Commit Message Discipline
 
-We follow the **Conventional Commits** format so that commit history is readable and can be automated:
+Use Conventional Commits where possible:
 
-```
-<type>: <short description>
+- `feat: add page editor with reorder and rotate`
+- `fix: exclude dist from backend tsconfig inputs`
+- `test: expand pdf service coverage for export helpers`
+- `docs: rewrite learning guides for current architecture`
+- `build: update compose variables for environment isolation`
 
-Types:
-  feat:     A new feature
-  fix:      A bug fix
-  docs:     Documentation changes
-  build:    Build system changes (Docker, CI)
-  refactor: Code restructuring (no feature change)
-  test:     Adding or updating tests
-```
+Why this helps:
 
-### Examples from Our Project
-```
-feat: initial commit with Pdficasso backend and frontend integration
-feat: enhance split with visual page selector and ZIP download
-docs: add README.md and fix start_prod.bat
-fix: upgrade Dockerfiles to Node 20 for Vite 8 compatibility
-build: add multi-stage Dockerfiles and docker-compose
-```
+- easier history scanning
+- easier release notes later
+- clearer review context
 
----
+## 7. Branch Protection Rules
 
-## 🔒 Safeguarding Your Branches
+If you use GitHub, set protection for:
 
-In a professional setting, we use **Branch Protection Rules** to physically prevent anyone (even you!) from pushing directly to `main` or `dev`. Everything MUST go through a Pull Request.
+- `main`
+- `dev`
 
-### How to set this up on GitHub:
+Recommended rules:
 
-1.  Go to your repository on GitHub → **Settings** → **Branches**.
-2.  Click **Add branch protection rule**.
-3.  **Branch name pattern**: `main`
-4.  **Check these boxes**:
-    - [x] **Require a pull request before merging** (forces the PR workflow).
-    - [x] **Require status checks to pass before merging** (useful if you want Jenkins to "vote" on the PR).
-5.  Click **Create**.
-6.  **Repeat** for the `dev` branch.
+- require pull requests
+- require status checks
+- optionally require review
+- disallow force pushes
 
-Once this is done, if you try to run `git push origin main` from your terminal, GitHub will **REJECT** it with an error. This is a safety net that ensures your CI/CD pipeline remains the only way code gets deployed!
+This protects you from your own future self on tired days.
 
----
+## 8. What Belongs in One PR vs Multiple PRs
 
-## Commands Cheat Sheet
+This is one of the hardest practical judgment calls.
 
-| Task | Command |
-|---|---|
-| See all branches | `git branch -a` |
-| Switch to dev | `git checkout dev` |
-| Create a feature branch | `git checkout -b feature/name` |
-| Push a new branch | `git push -u origin feature/name` |
-| Delete a remote branch | `git push origin --delete branch-name` |
-| Merge dev into main | Open a Pull Request on GitHub |
+### Keep together when:
+
+- frontend and backend changes are tightly coupled
+- a feature is not meaningful unless both parts land
+- tests depend on the full implementation
+
+Example:
+
+The page editor required:
+
+- backend descriptor support
+- frontend editor UI
+- export route changes
+- test updates
+
+That is one coherent PR.
+
+### Split when:
+
+- docs can be reviewed independently
+- refactors are mechanical
+- infrastructure changes are unrelated to product behavior
+
+Example:
+
+- `fix/backend-tsconfig-dist`
+- `docs/update-learning-material`
+
+could reasonably be separate if they are not blocking feature work.
+
+## 9. Handling Hotfixes
+
+If production is broken:
+
+1. branch from `main`
+2. create `fix/<issue>`
+3. patch the problem
+4. merge back to `main`
+5. back-merge the fix into `dev`
+
+This last step is important. Otherwise the fix exists only in production and will be lost the next time `dev` merges into `main`.
+
+## 10. How Branching Connects to Jenkins
+
+In this project, branch names are not just Git organization. They also affect deployment behavior.
+
+The Jenkinsfile uses branch-based deployment logic:
+
+- `main` -> production-style deployment
+- `dev` -> staging-style deployment
+- anything else -> dev-style deployment
+
+That means branch naming has real deployment consequences.
+
+This is a major learning point:
+
+`Your branching strategy becomes part of your delivery system once CI/CD starts making decisions from it.`
+
+## 11. Common Mistakes to Avoid
+
+### Mistake 1: Long-lived feature branches
+
+If a branch stays open too long:
+
+- merge conflicts grow
+- review gets harder
+- testing becomes less trustworthy
+
+### Mistake 2: Mixing unrelated changes
+
+If one branch contains:
+
+- feature work
+- unrelated docs changes
+- Docker cleanup
+- test refactors
+
+reviewers struggle to understand the risk.
+
+### Mistake 3: Skipping tests on “small” changes
+
+Small build or config changes can break CI just as badly as product code.
+
+### Mistake 4: Forgetting docs
+
+In a learning-focused project, documentation is part of the product. Treat docs work as first-class work.
+
+## 12. A Practical Workflow for This Repository
+
+If you continue building PDFicasso, a good default cycle is:
+
+1. open a branch from `dev`
+2. implement one coherent capability
+3. add or update tests
+4. update docs if behavior changed
+5. merge into `dev`
+6. verify the deployed `dev` environment
+7. promote `dev` to `main`
+
+That is simple, realistic, and sustainable.
+
+## 13. Key Learning Takeaways
+
+1. Branch strategy is a risk-management tool.
+2. `dev` is useful when features need integration before production.
+3. CI/CD can make branch names operationally meaningful.
+4. Small, coherent PRs are easier to review and safer to merge.
+5. Docs and infrastructure changes deserve the same discipline as app code.
