@@ -12,11 +12,11 @@ Jenkins is the industry-standard automation server. We run it locally inside Doc
 │                                                       │
 │  ┌─────────────────────┐    ┌──────────────────────┐  │
 │  │  Jenkins Container  │    │  App Containers       │  │
-│  │  (port 8080)        │───>│  backend  (3001)      │  │
-│  │                     │    │  frontend (5173)      │  │
+│  │  (port 8080)        │───>│  (Dev / Stg / Prod)   │  │
+│  │                     │    │  Isolated by Project  │  │
 │  │  Runs Jenkinsfile   │    └──────────────────────┘  │
 │  │  Tests code         │                              │
-│  │  Builds images      │    ┌──────────────────────┐  │
+│  │  Deploys images     │    ┌──────────────────────┐  │
 │  │        │            │    │  Docker Desktop       │  │
 │  │        └────────────│───>│  (Docker Daemon)      │  │
 │  └─────────────────────┘    └──────────────────────┘  │
@@ -32,17 +32,22 @@ The critical trick is **mounting the Docker socket**. Jenkins runs *inside* a co
 ## The Files We Created
 
 ### 1. `Dockerfile.jenkins`
-A custom Jenkins image with the Docker CLI installed inside it.
+A custom Jenkins image with the Docker CLI and **Docker Compose** installed.
 
 ```dockerfile
 FROM jenkins/jenkins:lts
 USER root
 
-# Download the static Docker CLI binary (no apt repos needed!)
-RUN curl -fsSLO https://download.docker.com/linux/static/stable/x86_64/docker-24.0.7.tgz && \
-    tar xzvf docker-24.0.7.tgz && \
+# Download the static Docker CLI binary (v27.3.1)
+RUN curl -fsSLO https://download.docker.com/linux/static/stable/x86_64/docker-27.3.1.tgz && \
+    tar xzvf docker-27.3.1.tgz && \
     mv docker/docker /usr/local/bin/ && \
-    rm -rf docker docker-24.0.7.tgz
+    rm -rf docker docker-27.3.1.tgz
+
+# Install Docker Compose CLI Plugin (v2.24.1)
+RUN mkdir -p /usr/local/lib/docker/cli-plugins && \
+    curl -SL https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose && \
+    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
 # Give Jenkins permission to use the Docker socket
 RUN groupadd -f docker && usermod -aG root jenkins && usermod -aG docker jenkins
@@ -50,68 +55,46 @@ RUN groupadd -f docker && usermod -aG root jenkins && usermod -aG docker jenkins
 USER jenkins
 ```
 
-> **⚠️ Gotcha**: We originally tried installing Docker via `apt-get`, but the Jenkins LTS base image (Debian Trixie) was missing the `software-properties-common` package. **Fix**: Download the static binary directly — no package manager needed.
-
-### 2. `jenkins-compose.yml`
-Spins up the Jenkins server with one command.
-
-```yaml
-services:
-  jenkins:
-    build:
-      context: .
-      dockerfile: Dockerfile.jenkins
-    ports:
-      - "8080:8080"      # Jenkins Web UI
-      - "50000:50000"    # Agent communication port
-    volumes:
-      - jenkins_data:/var/jenkins_home                   # Persist config across restarts
-      - /var/run/docker.sock:/var/run/docker.sock        # Share Docker daemon
-```
-
-**Key volume mounts**:
-- `jenkins_data` → Persists your Jenkins configuration, jobs, and plugins even if the container is deleted
-- `docker.sock` → Lets Jenkins build Docker images using your PC's Docker engine
-
-### 3. `Jenkinsfile`
-The pipeline definition. Jenkins reads this file and executes each stage sequentially.
+### 2. `Jenkinsfile`
+The pipeline definition. We use **Conditional Branch Logic** to decide where to deploy.
 
 ```groovy
-pipeline {
-    agent any
-
-    stages {
-        stage('Checkout')       { ... }   // Pull the code
-        stage('Test Backend')   { ... }   // npm ci + npm test inside a Node container
-        stage('Build Containers') { ... } // docker compose build
-        stage('Mock Deploy')    { ... }   // Log success message
+stage('Deploy to Environment') {
+    steps {
+        script {
+            if (env.GIT_BRANCH == 'origin/dev') {
+                // Staging Deploy
+                sh 'FRONTEND_PORT=8081 BACKEND_PORT=3002 COMPOSE_PROJECT_NAME=pdficasso-staging docker compose up -d --build'
+            } else if (env.GIT_BRANCH == 'origin/main') {
+                // Production Deploy
+                sh 'FRONTEND_PORT=80 BACKEND_PORT=3000 COMPOSE_PROJECT_NAME=pdficasso-prod docker compose up -d --build'
+            } else {
+                // Feature/Dev branch Deploy
+                sh 'FRONTEND_PORT=8082 BACKEND_PORT=3003 COMPOSE_PROJECT_NAME=pdficasso-dev docker compose up -d --build'
+            }
+        }
     }
 }
 ```
 
 ---
 
-## Pipeline Stages Explained
+## ⚠️ Pipeline Gotchas We Fixed
 
-| Stage | What happens | Fails if... |
-|---|---|---|
-| **Checkout** | Jenkins pulls your code from Git | Git repo is unreachable |
-| **Test Backend** | Spins up a temporary `node:20-alpine` container, installs deps, runs `vitest` | Any unit test fails |
-| **Build Containers** | Runs `docker compose build` to create the backend and frontend images | Dockerfile has errors |
-| **Mock Deploy** | Logs a success message (placeholder for real deployment) | N/A |
+### 1. Docker API Version Mismatch
+**Error**: `Error response from daemon: client version 1.43 is too old. Minimum supported API version is 1.44`  
+**Problem**: We used an old Docker CLI image (v24) inside Jenkins, but your Windows Docker engine was v27.  
+**Fix**: Updated `Dockerfile.jenkins` to download the static binary for **Docker v27.3.1**.
 
-If **any stage fails**, the entire pipeline stops and is marked as **RED** ❌ in the Jenkins UI. If all stages pass, it's **GREEN** ✅.
+### 2. Jenkinsfile Syntax Failure
+**Error**: `Invalid agent type "docker" specified. Must be one of [any, label, none]`  
+**Problem**: The "Docker Pipeline" plugin was missing.  
+**Fix**: Installed the plugin via the Jenkins Plugin Manager.
 
----
-
-## First-Time Setup
-
-1. Open **http://localhost:8080**
-2. Paste the admin password from `docker logs pdficasso-jenkins`
-3. Click **"Install suggested plugins"**
-4. Create your admin user
-5. Install the **"Docker Pipeline"** plugin (Manage Jenkins → Plugins → Available)
-6. Create a **New Item** → **Pipeline** → Point it at your Git repo and `Jenkinsfile`
+### 3. TypeScript Build Failures
+**Error**: `error TS2532: Object is possibly 'undefined'`  
+**Problem**: The production build stage ran `tsc` which tried to compile our test files under strict mode.  
+**Fix**: Added non-null assertions to tests and updated `tsconfig.json` to `exclude` test files from the build.
 
 ---
 
@@ -119,8 +102,7 @@ If **any stage fails**, the entire pipeline stops and is marked as **RED** ❌ i
 
 | Task | Command |
 |---|---|
-| Start Jenkins | `docker compose -f jenkins-compose.yml up -d` |
-| Stop Jenkins | `docker compose -f jenkins-compose.yml down` |
 | View logs | `docker logs pdficasso-jenkins` |
 | Get admin password | `docker exec pdficasso-jenkins cat /var/jenkins_home/secrets/initialAdminPassword` |
-| Rebuild Jenkins image | `docker compose -f jenkins-compose.yml up -d --build` |
+| Verify Docker in Jenkins | `docker exec pdficasso-jenkins docker version` |
+| Verify Compose in Jenkins | `docker exec pdficasso-jenkins docker compose version` |
