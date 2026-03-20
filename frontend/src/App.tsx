@@ -543,8 +543,8 @@ function App() {
           <h1 className="text-5xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 text-transparent bg-clip-text">
             PDFicasso
           </h1>
-          <p className="text-neutral-400 max-w-2xl mx-auto text-lg border border-neutral-800 bg-neutral-900/50 backdrop-blur-sm p-3 rounded-lg shadow-xl shadow-black/20">
-            Merge, extract, and edit your PDFs. Secure, fast, and fully local with a 50MB limit per operation.
+          <p className="text-neutral-400 max-w-xl mx-auto text-lg border border-neutral-800 bg-neutral-900/50 backdrop-blur-sm p-3 rounded-lg shadow-xl shadow-black/20">
+            Merge & split your PDFs. Secure, fast, and fully local. <span className="text-indigo-400 font-semibold">50MB limit</span> per operation.
           </p>
         </header>
 
