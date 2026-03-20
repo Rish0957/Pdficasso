@@ -16,6 +16,18 @@ It started as a merge/split project and now supports:
 
 The project is also designed as a learning vehicle for Docker, CI/CD, TypeScript, testing, and multi-environment deployment.
 
+## Live Demo
+
+Try the deployed app here:
+
+- [https://pdficasso-frontend.onrender.com/](https://pdficasso-frontend.onrender.com/)
+
+## Interface Preview
+
+The current live UI is available at the Render link above for immediate testing.
+
+![PDFicasso live interface](./Test/Screenshot%202026-03-20%20093031.png)
+
 ## Product Snapshot
 
 ### Core user flows
